@@ -9,6 +9,6 @@ Arquivos disponíveis:
 
 1. Sequencial
 2. Threads
-3. Fila com número finito de Threads: $\num(fila) \geq num(threads)$
+3. Fila com número finito de Threads: $num(fila) \geq num(threads)$
 4. Select
 
