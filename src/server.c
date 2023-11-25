@@ -14,11 +14,13 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/select.h>
 
 //#define PORT 8080
 #define PORT atoi(argv[1])
 #define BUFFER_SIZE 104857600
 
+long int counter = 0;
 
 //obtém a extensão de um arquivo
 const char *get_file_extension(const char *file_name){
@@ -149,30 +151,30 @@ void *handle_client(void *arg){
     int client_fd = *((int *)arg);
     char *buffer =(char *)malloc(BUFFER_SIZE * sizeof(char));
 
-    // receive request data from client and store into buffer
+    // armazena no buffer a requisicao https
     ssize_t bytes_received = recv(client_fd, buffer, BUFFER_SIZE, 0);
     if(bytes_received > 0){
-        // check if request is GET
+        // checa se é GET
         regex_t regex;
         regcomp(&regex, "^GET /([^ ]*) HTTP/1", REG_EXTENDED);
         regmatch_t matches[2];
 
         if(regexec(&regex, buffer, 2, matches, 0) == 0){
-            // extract filename from request and decode URL
+            // extrai nome do arquivo
             buffer[matches[1].rm_eo] = '\0';
             const char *url_encoded_file_name = buffer + matches[1].rm_so;
             char *file_name = url_decode(url_encoded_file_name);
 
-            // get file extension
+            // extrai extensao
             char file_ext[32];
             strcpy(file_ext, get_file_extension(file_name));
 
-            // build HTTP response
+            // constroi resposta http
             char *response =(char *)malloc(BUFFER_SIZE * 2 * sizeof(char));
             size_t response_len;
             build_http_response(file_name, file_ext, response, &response_len);
 
-            // send HTTP response to client
+            // envia a resposta http
             send(client_fd, response, response_len, 0);
 
             free(response);
@@ -186,6 +188,7 @@ void *handle_client(void *arg){
     return NULL;
 }
 
+/*
 int main(int argc, char *argv[]){
     int server_fd;
     struct sockaddr_in server_addr;
@@ -229,13 +232,135 @@ int main(int argc, char *argv[]){
             perror("accept failed");
             continue;
         }
+        else{
+            printf("Cliente %ld aceito\n", counter);
+            counter++;
+        }
+    
+        int estrategia = atoi(argv[2]);
 
-        // create a new thread to handle client request
-        pthread_t thread_id;
-        pthread_create(&thread_id, NULL, handle_client,(void *)client_fd);
-        pthread_detach(thread_id);
+        //sequencial
+        if(estrategia == 1){
+            handle_client((void*)client_fd);
+        }
+        //threads
+        if(estrategia == 2){
+            // create a new thread to handle client request
+            pthread_t thread_id;
+            pthread_create(&thread_id, NULL, handle_client,(void *)client_fd);
+            pthread_detach(thread_id);
+        }
+
+        //fila
+        if(estrategia == 3); 
+        
+        //select
+        if(estrategia == 4);
     }
 
     close(server_fd);
+    return 0;
+}
+
+*/
+
+/*
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+*/
+
+#define MAX_CLIENTS 10
+
+int main(int argc, char *argv[]) {
+    int server_fd, max_fd, activity;
+    int client_sockets[MAX_CLIENTS] = {0};
+    fd_set readfds;
+
+    struct sockaddr_in server_addr;
+
+    // create server socket
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // config socket
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(PORT);
+
+    // bind socket to port
+    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // listen for connections
+    if (listen(server_fd, 10) < 0) {
+        perror("listen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Server listening on port %d\n", PORT);
+
+    while (1) {
+        FD_ZERO(&readfds);
+
+        // Add server_fd to set
+        FD_SET(server_fd, &readfds);
+        max_fd = server_fd;
+
+        // Add client sockets to set
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            int sd = client_sockets[i];
+            if (sd > 0) {
+                FD_SET(sd, &readfds);
+                if (sd > max_fd) {
+                    max_fd = sd;
+                }
+            }
+        }
+
+        // Wait for activity on any of the sockets
+        activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
+
+        if ((activity < 0) && (errno != EINTR)) {
+            printf("select error");
+        }
+
+        // If server_fd has activity, it's a new connection
+        if (FD_ISSET(server_fd, &readfds)) {
+            int new_socket;
+            struct sockaddr_in client_addr;
+            socklen_t client_addr_len = sizeof(client_addr);
+
+            if ((new_socket = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len)) < 0) {
+                perror("accept failed");
+                continue;
+            }
+
+            // Add new connection to array of sockets
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (client_sockets[i] == 0) {
+                    client_sockets[i] = new_socket;
+                    printf("Client %d connected\n", i);
+                    break;
+                }
+            }
+        }
+
+        // Check other sockets for activity
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            int sd = client_sockets[i];
+            if (FD_ISSET(sd, &readfds)) {
+                 handle_client((void*)sd);
+            }
+        }
+    }
+
     return 0;
 }
