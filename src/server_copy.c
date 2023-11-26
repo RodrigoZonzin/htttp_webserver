@@ -15,12 +15,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/select.h>
+#include <semaphore.h>
 
 //#define PORT 8080
 #define PORT atoi(argv[1])
 #define BUFFER_SIZE 104857600
-#define SOCKETERROR (-1)
-#define CU printf("CU\n");
 
 long int counter = 0;
 
@@ -190,29 +189,7 @@ void *handle_client(void *arg){
     return NULL;
 }
 
-int check(int exp, const char *msg){
-    if(exp == SOCKETERROR){
-        perror(msg); 
-        exit(1); 
-    }
-
-    return exp; 
-}
-
-
-int accept_new_connection(int server_socket){
-
-    socklen_t addr_size = sizeof(struct sockaddr_in); 
-    int client_socket; 
-    struct sockaddr_in client_addr; 
-    check(client_socket =
-        accept(server_socket,
-                (struct sockaddr*)&client_addr,
-                (socklen_t*) &addr_size),
-                "accep failed"); 
-
-    return client_socket;
-}
+#define NUM_PRODUCERS 5
 
 int main(int argc, char *argv[]){
     int server_fd;
@@ -262,54 +239,38 @@ int main(int argc, char *argv[]){
             counter++;
         }
     
-        int estrategia = atoi(argv[2]);
+        pthread_t producers[NUM_PRODUCERS], consumers[NUM_CONSUMERS];
 
-        //sequencial
-        if(estrategia == 1){
-            handle_client((void*)client_fd);
-        }
-        //threads
-        if(estrategia == 2){
-            // create a new thread to handle client request
-            pthread_t thread_id;
-            pthread_create(&thread_id, NULL, handle_client,(void *)client_fd);
-            pthread_detach(thread_id);
-        }
+        // Inicialização dos semáforos e mutex
+        sem_init(&full, 0, 0);
+        sem_init(&empty, 0, MAX_BUFFER_SIZE);
+        pthread_mutex_init(&mutex, NULL);
 
-        //fila
-        if(estrategia == 3); 
-        
-        //select
-        if(estrategia == 4){
-            fd_set current_sockets, ready_sockets;
+        // Cria threads produtoras
+        for (int i = 0; i < NUM_PRODUCERS; ++i)
+            pthread_create(&producers[i], NULL, producer, NULL);
 
-            FD_ZERO(&current_sockets);
-            FD_SET(server_fd, &current_sockets);
+        // Cria threads consumidoras
+        for (int i = 0; i < NUM_CONSUMERS; ++i)
+            pthread_create(&consumers[i], NULL, consumer, NULL);
 
-            ready_sockets = current_sockets;  // Initialize ready_sockets for each iteration
+        // Espera as threads terminarem
+        for (int i = 0; i < NUM_PRODUCERS; ++i)
+            pthread_join(producers[i], NULL);
 
-            if (select(FD_SETSIZE, &ready_sockets, NULL, NULL, NULL) < 0) {
-                perror("Select Error");
-                exit(EXIT_FAILURE);
-            }
+        for (int i = 0; i < NUM_CONSUMERS; ++i)
+            pthread_join(consumers[i], NULL);
 
-            for (int i = 0; i < FD_SETSIZE; i++) {
-                if (FD_ISSET(i, &ready_sockets)) {
-                    if (i == server_fd) {
-                        //int client_socket = accept_new_connection(server_fd);
-                        int client_socket  = *client_fd;
-                        FD_SET(client_socket, &current_sockets);
-                    } 
-                    else {
-                        handle_client(&i);  
-                        FD_CLR(i, &current_sockets);
-                    }
-                }
-            }
-        }
+        // Destruição dos semáforos e mutex
+        sem_destroy(&full);
+        sem_destroy(&empty);
+        pthread_mutex_destroy(&mutex);
+
+    return 0;
+}
+
     }
 
     close(server_fd);
     return 0;
 }
-
