@@ -286,7 +286,7 @@ int main(int argc, char *argv[]){
             FD_ZERO(&current_sockets);
             FD_SET(server_fd, &current_sockets);
 
-            ready_sockets = current_sockets;  // Initialize ready_sockets for each iteration
+            ready_sockets = current_sockets;  
 
             if (select(FD_SETSIZE, &ready_sockets, NULL, NULL, NULL) < 0) {
                 perror("Select Error");
@@ -296,9 +296,9 @@ int main(int argc, char *argv[]){
             for (int i = 0; i < FD_SETSIZE; i++) {
                 if (FD_ISSET(i, &ready_sockets)) {
                     if (i == server_fd) {
-                        //int client_socket = accept_new_connection(server_fd);
-                        int client_socket  = *client_fd;
-                        FD_SET(client_socket, &current_sockets);
+                        int client_socket = accept_new_connection(server_fd);
+                        //int client_socket  = *client_fd;
+                        FD_SET(i, &current_sockets);
                     } 
                     else {
                         handle_client(&i);  
